@@ -109,6 +109,17 @@ export class Engine {
     if (validIsoDate(rp)) return rp;
     return '';
   }
+  /** Previsão de chegada combinada (aba Ag. Envio ou Ag. Chegada). */
+  arrivalForecastOf(r: BacklogRow | EventRow) {
+    const fromEnvio = this.prevChegOf(r);
+    const fromChegada = this.chegadaOf(r)?.prevCheg || '';
+    if (validIsoDate(fromEnvio)) return fromEnvio;
+    if (validIsoDate(fromChegada)) return fromChegada;
+    return '';
+  }
+  hasValidArrivalForecastOf(r: BacklogRow | EventRow) {
+    return Boolean(this.arrivalForecastOf(r));
+  }
   digitationStatusOf(r: BacklogRow | EventRow) {
     return normText(this.chegadaConfOf(r)?.digitacao || this.chegadaOf(r)?.digitacao || '');
   }
@@ -147,12 +158,27 @@ export class Engine {
   isConferenciaDI(r: BacklogRow | EventRow): boolean {
     return /CONFERENCIA DI/.test(this.digitationStatusOf(r));
   }
+  /** Etapa crítica de chegada: previsão válida, sem chegada real e prontidão incompleta. */
+  isAgChegadaComPendencia(r: BacklogRow | EventRow): boolean {
+    const agChegada = this.chegadaOf(r);
+    if (!agChegada) return false;
+    if (!this.hasValidArrivalForecastOf(r)) return false;
+    if (this.actualArrivalOf(r)) return false;
+    const s = this.digitationStatusOf(r);
+    if (/CONFERIDO AG\. CHEGADA/.test(s)) return false;
+    if (this.isConferenciaDI(r)) return false;
+    if (/CONFERIDO - AG\. REGISTRO|AG\. REGISTRO|REGISTRO DE DI|REGISTRO COM PENDENCIA/.test(s)) return false;
+    return true;
+  }
 
   /** Regra de ciclo concluído para eventos do calendário. */
   isOpenOperationalEvent(r: EventRow): boolean {
     const ev = String(r.evento || '').toLowerCase();
-    if (ev === 'previsão embarque' && this.actualEmbarkationOf(r)) return false;
-    if (ev === 'embarque' && this.actualEmbarkationOf(r)) return false;
+    // Se já existe previsão de chegada válida, a falta de confirmação de embarque
+    // não permanece como pendência (o embarque evidentemente ocorreu).
+    const embarkProgressed = Boolean(this.actualEmbarkationOf(r) || this.hasValidArrivalForecastOf(r));
+    if (ev === 'previsão embarque' && embarkProgressed) return false;
+    if (ev === 'embarque' && embarkProgressed) return false;
     if (ev === 'chegada prevista' && this.actualArrivalOf(r)) return false;
     if (ev === 'chegada confirmada' && this.actualArrivalOf(r)) return false;
     if (ev === 'prazo digitação/numerário' && this.isDigitationCompleted(r)) return false;
@@ -163,7 +189,7 @@ export class Engine {
   cleanOperationalMotive(r: BacklogRow | EventRow): string {
     const raw = String((r as any).motivo || (r as any).acao || '').trim();
     if (!raw) return '';
-    const embarked = Boolean(this.actualEmbarkationOf(r));
+    const embarkProgressed = Boolean(this.actualEmbarkationOf(r) || this.hasValidArrivalForecastOf(r));
     const arrived = Boolean(this.actualArrivalOf(r));
     const digDone = this.isDigitationCompleted(r);
     const docsDone = this.isDocsCompleted(r);
@@ -173,7 +199,7 @@ export class Engine {
       .filter(Boolean)
       .filter((part) => {
         const p = part.toLowerCase();
-        if (embarked && /embarque vencid/.test(p)) return false;
+        if (embarkProgressed && /embarque vencid/.test(p)) return false;
         if (arrived && /chegada (?:prevista|confirmada) vencid/.test(p)) return false;
         if (digDone && /prazo de digita|digita..o vencid/.test(p)) return false;
         if (docsDone && /deadline documental vencid/.test(p)) return false;
@@ -274,6 +300,7 @@ export class Engine {
       return this.prevChegOf(r) || this.prevEmbOf(r) || '';
     if (stageId === 'digitacao' || stageId === 'numerario')
       return dateFromStatusText(this.digitationStatusOf(r)) || r.data || '';
+    if (stageId === 'agChegadaPendente') return this.arrivalForecastOf(r) || r.data || '';
     if (stageId === 'conferidoAgChegada') return this.chegadaOf(r)?.prevCheg || '';
     if (stageId === 'chegadaPendente') return this.actualArrivalOf(r) || '';
     if (stageId === 'conferencia') return this.actualArrivalOf(r) || this.chegadaOf(r)?.prevCheg || r.data || '';
@@ -310,6 +337,7 @@ export class Engine {
     if (t.includes('aguardando ncm')) score += 2200;
     if (stageId === 'digitacao') score += 4200;
     if (stageId === 'numerario') score += 5000;
+    if (stageId === 'agChegadaPendente') score += 7200;
     if (stageId === 'conferidoAgChegada') score += 3600;
     if (stageId === 'registro' && /registro|bloque|débito|debito/.test(t)) score += 6000;
     return { score, label };
@@ -343,8 +371,10 @@ export class Engine {
       if (stageId === 'semPrevChegada') return noPrevCheg;
       if (stageId === 'comPrevChegada') return hasPrevCheg && !clientWait;
       if (stageId === 'aguardandoCliente') return hasPrevCheg && clientWait;
-      if (stageId === 'digitacao') return this.isDigitationPending(r);
-      if (stageId === 'numerario') return this.isNumerarioPending(r);
+      const agChegadaComPendencia = this.isAgChegadaComPendencia(r);
+      if (stageId === 'digitacao') return this.isDigitationPending(r) && !agChegadaComPendencia;
+      if (stageId === 'numerario') return this.isNumerarioPending(r) && !agChegadaComPendencia;
+      if (stageId === 'agChegadaPendente') return agChegadaComPendencia;
       if (stageId === 'conferidoAgChegada') return this.isConferidoAguardandoChegada(r);
       if (stageId === 'chegadaPendente') return aba.includes('chegada confirmada') && Boolean(this.actualArrivalOf(r));
       if (stageId === 'conferencia') return this.isConferenciaDI(r);

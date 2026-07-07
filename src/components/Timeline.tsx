@@ -171,6 +171,16 @@ function cardCells(r: BacklogRow, stageId: string, eng: Engine): [string, string
       ['Responsável', r.responsavel || '—'],
     ];
   }
+  if (stageId === 'agChegadaPendente') {
+    return [
+      ['Prev. Chegada', D(eng.arrivalForecastOf(r))],
+      ['Status Digitação', cheg?.digitacao || conf?.digitacao || '—'],
+      ['Numerário', cheg?.numerario || conf?.numerario || '—'],
+      ['Checklist', cheg?.checklist || '—'],
+      ['Último Follow', D(cheg?.follow)],
+      ['Responsável', r.responsavel || '—'],
+    ];
+  }
   if (stageId === 'conferidoAgChegada') {
     return [
       ['Prev. Chegada', D(cheg?.prevCheg)],
