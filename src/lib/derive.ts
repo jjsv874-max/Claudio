@@ -42,6 +42,14 @@ export interface Priority {
   label: string;
 }
 
+export interface DashItem {
+  key: string;
+  row: BacklogRow;
+  stage: FlowStage;
+  stageIndex: number;
+  priority: Priority;
+}
+
 /**
  * Motor de derivação: encapsula toda a lógica operacional (ciclo concluído,
  * etapas da Timeline, dedup, dashboard, vencidos) sobre os dados processados.
@@ -438,8 +446,8 @@ export class Engine {
   }
 
   // ---------- Dashboard por analista ----------
-  dashboardAssigned(f: Filters) {
-    const assigned = new Map<string, { key: string; row: BacklogRow; stage: FlowStage; stageIndex: number; priority: Priority }>();
+  dashboardAssigned(f: Filters): DashItem[] {
+    const assigned = new Map<string, DashItem>();
     FLOW_STAGES.forEach((stage, stageIndex) => {
       this.flowStageRows(stage.id, f).forEach((r) => {
         if (!r.key) return;
@@ -458,6 +466,46 @@ export class Engine {
       });
     });
     return [...assigned.values()];
+  }
+
+  /** Estágio de maturidade do marco de chegada para um processo (precedência). */
+  arrivalMilestoneForKey(key: string): 'semPrevEmbarque' | 'comPrevisao' | 'agChegada' | 'chegadaConfirmada' {
+    const rows = this.data.byKey.get(key);
+    if (!rows || !rows.length) return 'semPrevEmbarque';
+    const r0 = rows[0];
+    if (this.actualArrivalOf(r0)) return 'chegadaConfirmada';
+    if (this.hasValidArrivalForecastOf(r0) || rows.some((r) => String(r.aba).toLowerCase().includes('ag. chegada')))
+      return 'agChegada';
+    if (this.prevEmbOf(r0) || this.embOf(r0)) return 'comPrevisao';
+    return 'semPrevEmbarque';
+  }
+
+  /** Contagem de maturidade de chegada sobre a carteira única filtrada do Dashboard. */
+  arrivalMaturity(f: Filters) {
+    const items = this.dashboardAssigned(f);
+    const buckets: Record<string, DashItem[]> = {
+      semPrevEmbarque: [], comPrevisao: [], agChegada: [], chegadaConfirmada: [],
+    };
+    items.forEach((it) => buckets[this.arrivalMilestoneForKey(it.key)].push(it));
+    return { buckets, total: items.length };
+  }
+
+  /** Itens do drill-down gerencial (auditoria de qualquer indicador do Dashboard). */
+  dashboardDrilldown(f: Filters, type: string, value = '', analyst = ''): DashItem[] {
+    let items = this.dashboardAssigned(f);
+    if (analyst) items = items.filter((x) => (x.row.responsavel || 'NÃO INFORMADO') === analyst);
+    if (type === 'overdue') items = items.filter((x) => x.priority.label === 'Vencido');
+    else if (type === 'nodate') items = items.filter((x) => !this.flowPrimaryDate(x.row, x.stage.id));
+    else if (type === 'stage') items = items.filter((x) => x.stage.id === value);
+    else if (type === 'milestone') items = items.filter((x) => this.arrivalMilestoneForKey(x.key) === value);
+    return items.sort((a, b) => {
+      const ap = a.priority.label === 'Vencido' ? 0 : 1;
+      const bp = b.priority.label === 'Vencido' ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      const ad = this.flowPrimaryDate(a.row, a.stage.id) || '9999-12-31';
+      const bd = this.flowPrimaryDate(b.row, b.stage.id) || '9999-12-31';
+      return String(ad).localeCompare(String(bd)) || String(a.row.processo).localeCompare(String(b.row.processo));
+    });
   }
 
   dashboardPortfolio(f: Filters) {

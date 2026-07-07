@@ -2,20 +2,30 @@ import { useMemo, useState } from 'react';
 import { Engine } from '../lib/derive';
 import { FLOW_STAGES, DASHBOARD_UNMAPPED_STAGE, DASHBOARD_STAGE_COLORS } from '../lib/stages';
 import type { Filters } from '../lib/types';
+import DrilldownModal, { type DrilldownSpec } from './DrilldownModal';
 
 interface Props {
   eng: Engine;
   filters: Filters;
   onOpenProcess: (key: string) => void;
-  onFilterStageAnalyst: (etapa: string, responsavel: string) => void;
 }
 
 const STAGE_CATALOG = FLOW_STAGES.concat([DASHBOARD_UNMAPPED_STAGE]);
 
-export default function Dashboard({ eng, filters, onOpenProcess, onFilterStageAnalyst }: Props) {
+const MATURITY_DEFS = [
+  { id: 'semPrevEmbarque', label: 'Sem prev. embarque', cls: 'no-prev' },
+  { id: 'comPrevisao', label: 'Com previsão', cls: 'with-prev' },
+  { id: 'agChegada', label: 'Ag. chegada', cls: 'wait-arrival' },
+  { id: 'chegadaConfirmada', label: 'Chegada confirmada', cls: 'confirmed' },
+] as const;
+
+export default function Dashboard({ eng, filters, onOpenProcess }: Props) {
   const [selected, setSelected] = useState('');
+  const [drill, setDrill] = useState<DrilldownSpec | null>(null);
+
   const portfolios = useMemo(() => eng.dashboardPortfolio(filters), [eng, filters]);
   const assigned = useMemo(() => eng.dashboardAssigned(filters), [eng, filters]);
+  const maturity = useMemo(() => eng.arrivalMaturity(filters), [eng, filters]);
 
   const totalProc = assigned.length;
   const overdue = assigned.filter((x) => x.priority.label === 'Vencido').length;
@@ -28,22 +38,75 @@ export default function Dashboard({ eng, filters, onOpenProcess, onFilterStageAn
   const focus = portfolios.find((g) => g.analyst === selected) || portfolios[0];
   const maxCell = Math.max(1, ...portfolios.flatMap((g: any) => STAGE_CATALOG.map((s) => g.stages.get(s.id) || 0)));
 
-  const kpis: [string, number | string, string, string][] = [
-    ['Analistas', portfolios.length, '', 'com carteira ativa'],
-    ['Processos únicos', totalProc, '', 'sem duplicar etapas'],
-    ['Vencidos', overdue, 'alert', totalProc ? `${Math.round((overdue / totalProc) * 100)}% da carteira` : '0%'],
-    ['Sem data-chave', noDate, 'warn', 'exigem triagem'],
-    ['Maior gargalo', topOverall[1], '', topOverallStage.name],
+  const drillItems = useMemo(
+    () => (drill ? eng.dashboardDrilldown(filters, drill.type, drill.value, drill.analyst) : []),
+    [eng, filters, drill],
+  );
+
+  const openDrill = (spec: DrilldownSpec) => setDrill(spec);
+
+  const kpis: { k: string; v: number | string; c: string; s: string; spec?: DrilldownSpec }[] = [
+    { k: 'Analistas', v: portfolios.length, c: '', s: 'com carteira ativa' },
+    { k: 'Processos únicos', v: totalProc, c: '', s: 'sem duplicar etapas', spec: { type: 'all', title: 'Carteira única de processos' } },
+    {
+      k: 'Vencidos', v: overdue, c: 'alert', s: totalProc ? `${Math.round((overdue / totalProc) * 100)}% da carteira` : '0%',
+      spec: { type: 'overdue', title: 'Processos vencidos' },
+    },
+    { k: 'Sem data-chave', v: noDate, c: 'warn', s: 'exigem triagem', spec: { type: 'nodate', title: 'Processos sem data-chave' } },
+    {
+      k: 'Maior gargalo', v: topOverall[1], c: '', s: topOverallStage.name,
+      spec: { type: 'stage', value: topOverallStage.id, title: topOverallStage.name },
+    },
   ];
+
+  const maxMaturity = Math.max(1, ...MATURITY_DEFS.map((d) => maturity.buckets[d.id].length));
 
   return (
     <div>
+      {/* Barra de maturidade do marco de chegada */}
+      <div className="maturity">
+        <div className="maturity-head">
+          <div>
+            <h3>Maturidade do marco de chegada</h3>
+            <p>Processos únicos da tela atual — a chegada confirmada prevalece sobre os marcos anteriores. Clique para auditar.</p>
+          </div>
+          <div className="maturity-total">{maturity.total} processo(s)</div>
+        </div>
+        <div className="maturity-grid">
+          {MATURITY_DEFS.map((d) => {
+            const n = maturity.buckets[d.id].length;
+            const w = n ? Math.max(4, (n / maxMaturity) * 100) : 0;
+            return (
+              <div
+                key={d.id}
+                className={`maturity-item ${d.cls}`}
+                title={`Abrir ${n} processo(s)`}
+                onClick={() => openDrill({ type: 'milestone', value: d.id, title: `Maturidade · ${d.label}` })}
+              >
+                <div className="top">
+                  <span className="label">{d.label}</span>
+                  <span className="count">{n}</span>
+                </div>
+                <div className="maturity-track">
+                  <div className="maturity-fill" style={{ width: `${w}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="kpi-row">
-        {kpis.map(([k, v, c, s]) => (
-          <div className={`kpi ${c}`} key={k}>
-            <div className="k">{k}</div>
-            <div className="v">{v}</div>
-            <div className="s">{s}</div>
+        {kpis.map((x) => (
+          <div
+            key={x.k}
+            className={`kpi ${x.c} ${x.spec ? 'clickable' : ''}`}
+            title={x.spec ? 'Clique para listar os processos' : undefined}
+            onClick={x.spec ? () => openDrill(x.spec!) : undefined}
+          >
+            <div className="k">{x.k}</div>
+            <div className="v">{x.v}</div>
+            <div className="s">{x.s}</div>
           </div>
         ))}
       </div>
@@ -70,10 +133,26 @@ export default function Dashboard({ eng, filters, onOpenProcess, onFilterStageAn
                       {g.analyst}
                     </div>
                     <div className="analyst-total">{g.total} proc.</div>
-                    <div className="analyst-top-stage" title={g.topStage.name}>
+                    <div
+                      className="analyst-top-stage clickable"
+                      title={`Abrir processos em ${g.topStage.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDrill({ type: 'stage', value: g.topStage.id, analyst: g.analyst, title: `${g.topStage.name} · ${g.analyst}` });
+                      }}
+                    >
                       {g.topStage.name} · {g.concentration}%
                     </div>
-                    <div className="analyst-risk">{g.overdue} venc.</div>
+                    <div
+                      className="analyst-risk clickable"
+                      title="Abrir vencidos"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDrill({ type: 'overdue', analyst: g.analyst, title: `Vencidos · ${g.analyst}` });
+                      }}
+                    >
+                      {g.overdue} venc.
+                    </div>
                   </div>
                   <div className="analyst-bars">
                     {STAGE_CATALOG.map((s, i) => {
@@ -106,7 +185,7 @@ export default function Dashboard({ eng, filters, onOpenProcess, onFilterStageAn
             {!focus ? (
               <div className="empty">Sem dados para detalhar.</div>
             ) : (
-              <FocusPanel focus={focus} eng={eng} onOpenProcess={onOpenProcess} />
+              <FocusPanel focus={focus} onDrill={openDrill} />
             )}
           </div>
         </div>
@@ -116,7 +195,7 @@ export default function Dashboard({ eng, filters, onOpenProcess, onFilterStageAn
         <div className="panel-head">
           <div>
             <h3>Matriz Analista × Etapa</h3>
-            <div className="sub">Clique numa célula para filtrar o cruzamento na Timeline</div>
+            <div className="sub">Clique numa célula para auditar os processos daquele cruzamento</div>
           </div>
         </div>
         <div className="panel-body matrix-wrap">
@@ -148,8 +227,10 @@ export default function Dashboard({ eng, filters, onOpenProcess, onFilterStageAn
                         <span
                           className="heat"
                           style={heatStyle(n, maxCell)}
-                          onClick={() => n && s.id !== 'naoMapeado' && onFilterStageAnalyst(s.id, g.analyst)}
                           role={n ? 'button' : undefined}
+                          onClick={() =>
+                            n && openDrill({ type: 'stage', value: s.id, analyst: g.analyst, title: `${s.name} · ${g.analyst}` })
+                          }
                         >
                           {n || '–'}
                         </span>
@@ -175,11 +256,21 @@ export default function Dashboard({ eng, filters, onOpenProcess, onFilterStageAn
           <div className="insight-list">{insights(portfolios, topOverallStage, overdue, totalProc)}</div>
         </div>
       </div>
+
+      {drill && (
+        <DrilldownModal
+          spec={drill}
+          items={drillItems}
+          eng={eng}
+          onOpenProcess={onOpenProcess}
+          onClose={() => setDrill(null)}
+        />
+      )}
     </div>
   );
 }
 
-function FocusPanel({ focus, eng, onOpenProcess }: { focus: any; eng: Engine; onOpenProcess: (k: string) => void }) {
+function FocusPanel({ focus, onDrill }: { focus: any; onDrill: (s: DrilldownSpec) => void }) {
   const rows = STAGE_CATALOG.map((s) => ({ s, count: focus.stages.get(s.id) || 0 }))
     .filter((x) => x.count > 0)
     .sort((a, b) => b.count - a.count);
@@ -210,10 +301,6 @@ function FocusPanel({ focus, eng, onOpenProcess }: { focus: any; eng: Engine; on
       </div>,
     );
 
-  const critical = focus.items
-    .filter((x: any) => x.priority.label === 'Vencido')
-    .slice(0, 8);
-
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -221,11 +308,19 @@ function FocusPanel({ focus, eng, onOpenProcess }: { focus: any; eng: Engine; on
           <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--azul)' }}>{focus.analyst}</div>
           <div className="muted">Maior volume: {focus.topStage.name} · Modal principal: {focus.topModal}</div>
         </div>
-        <span className={`badge ${focus.overdue ? 'red' : 'green'}`}>{focus.overdue} vencidos</span>
+        <span
+          className={`badge ${focus.overdue ? 'red' : 'green'} clickable`}
+          onClick={() => focus.overdue && onDrill({ type: 'overdue', analyst: focus.analyst, title: `Vencidos · ${focus.analyst}` })}
+        >
+          {focus.overdue} vencidos
+        </span>
       </div>
 
       <div className="focus-stats">
-        <div className="focus-stat">
+        <div
+          className="focus-stat clickable"
+          onClick={() => onDrill({ type: 'analyst', value: focus.analyst, analyst: focus.analyst, title: `Carteira · ${focus.analyst}` })}
+        >
           <div className="n">{focus.total}</div>
           <div className="l">processos únicos</div>
         </div>
@@ -233,7 +328,10 @@ function FocusPanel({ focus, eng, onOpenProcess }: { focus: any; eng: Engine; on
           <div className="n">{focus.concentration}%</div>
           <div className="l">na maior etapa</div>
         </div>
-        <div className="focus-stat">
+        <div
+          className="focus-stat clickable"
+          onClick={() => focus.noDate && onDrill({ type: 'nodate', analyst: focus.analyst, title: `Sem data-chave · ${focus.analyst}` })}
+        >
           <div className="n">{focus.noDate}</div>
           <div className="l">sem data-chave</div>
         </div>
@@ -241,7 +339,12 @@ function FocusPanel({ focus, eng, onOpenProcess }: { focus: any; eng: Engine; on
 
       <div className="section-title">Distribuição por etapa</div>
       {rows.map((x) => (
-        <div className="stage-volume-row" key={x.s.id}>
+        <div
+          className="stage-volume-row clickable"
+          key={x.s.id}
+          title={`Abrir ${x.count} processo(s)`}
+          onClick={() => onDrill({ type: 'stage', value: x.s.id, analyst: focus.analyst, title: `${x.s.name} · ${focus.analyst}` })}
+        >
           <div className="stage-volume-name" title={x.s.name}>
             {x.s.name}
           </div>
@@ -255,27 +358,6 @@ function FocusPanel({ focus, eng, onOpenProcess }: { focus: any; eng: Engine; on
       <div className="dash-alerts" style={{ marginTop: 10 }}>
         {alerts}
       </div>
-
-      {critical.length > 0 && (
-        <>
-          <div className="section-title" style={{ marginTop: 12 }}>
-            Processos críticos (vencidos)
-          </div>
-          <div className="cards-col">
-            {critical.map((x: any) => (
-              <div className="detail-card" key={x.key} onClick={() => onOpenProcess(x.key)}>
-                <div className="top">
-                  <span className="proc-name">{x.row.processo}</span>
-                  <span className="badge red">{x.stage.short}</span>
-                </div>
-                <div className="meta">
-                  <b>Motivo:</b> {eng.cleanOperationalMotive(x.row) || '—'}
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
     </div>
   );
 }

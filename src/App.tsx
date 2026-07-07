@@ -81,17 +81,7 @@ export default function App() {
       <main className="content">
         <FilterBar data={data} filters={filters} setFilters={setFilters} onClear={() => setFilters(EMPTY_FILTERS)} />
 
-        {tab === 'dashboard' && (
-          <Dashboard
-            eng={eng}
-            filters={filters}
-            onOpenProcess={setProcessKey}
-            onFilterStageAnalyst={(etapa, responsavel) => {
-              setFilters({ ...filters, etapa, responsavel });
-              setTab('timeline');
-            }}
-          />
-        )}
+        {tab === 'dashboard' && <Dashboard eng={eng} filters={filters} onOpenProcess={setProcessKey} />}
         {tab === 'calendario' && <Calendar eng={eng} filters={filters} onOpenProcess={setProcessKey} />}
         {tab === 'timeline' && <Timeline eng={eng} filters={filters} onOpenProcess={setProcessKey} />}
       </main>

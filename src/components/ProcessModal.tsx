@@ -85,6 +85,7 @@ export default function ProcessModal({ processKey, data, eng, onClose }: Props) 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
             <ModalBadge modal={modal} rawType={rawType} />
             {topStage && <span className="badge blue">{topStage.name}</span>}
+            <MilestoneBadge id={eng.arrivalMilestoneForKey(processKey)} />
             <span className={`badge ${prio.label === 'Vencido' ? 'red' : prio.label === 'Sem data' ? 'orange' : 'green'}`}>
               {prio.label}
             </span>
@@ -187,6 +188,17 @@ export default function ProcessModal({ processKey, data, eng, onClose }: Props) 
       </div>
     </div>
   );
+}
+
+function MilestoneBadge({ id }: { id: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    semPrevEmbarque: { label: 'Sem prev. embarque', cls: 'red' },
+    comPrevisao: { label: 'Com previsão', cls: 'blue' },
+    agChegada: { label: 'Aguardando chegada', cls: 'orange' },
+    chegadaConfirmada: { label: 'Chegada confirmada', cls: 'green' },
+  };
+  const m = map[id] || map.semPrevEmbarque;
+  return <span className={`badge ${m.cls}`} title="Maturidade do marco de chegada">⚓ {m.label}</span>;
 }
 
 function Line({ k, v }: { k: string; v: string }) {
