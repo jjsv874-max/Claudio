@@ -1,13 +1,14 @@
 name: Deploy to GitHub Pages
 
-# Publica o painel no GitHub Pages.
+# Publica o aplicativo original (arquivo único, self-contained) no GitHub Pages.
+# Não há build: o conteúdo de ./site é servido exatamente como está.
 # Requisito: repositório público (plano gratuito) OU GitHub Pro (repo privado).
-# Depois que o Pages estiver disponível, este workflow publica automaticamente
-# em https://<usuario>.github.io/Claudio/ a cada push nesta branch.
+# Depois que o Pages estiver disponível, publica em
+# https://<usuario>.github.io/<repo>/ a cada push nesta branch.
 
 on:
   push:
-    branches: [claude/pre-registro-web-app-jrias6]
+    branches: [claude/publish-preregistro-dinamico-vhufxh]
   workflow_dispatch:
 
 permissions:
@@ -20,28 +21,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
       - id: deployment
         uses: actions/deploy-pages@v4
