@@ -1,6 +1,7 @@
+# Publicação estática do aplicativo original de arquivo único (site/index.html).
+# Sem build: o HTML é servido exatamente como está, com todo CSS/JS/bibliotecas inline.
 [build]
-  command = "npm run build"
-  publish = "dist"
+  publish = "site"
 
 [[redirects]]
   from = "/*"

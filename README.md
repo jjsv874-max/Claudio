@@ -1,5 +1,14 @@
 # Pré-Registro | Gestão Operacional (Freitas)
 
+> **Publicação (aplicativo original):** o app publicado é o arquivo único,
+> self-contained, em [`site/index.html`](site/index.html) — HTML + CSS + JS +
+> bibliotecas (JSZip) todos inline, sem build e sem dependências externas.
+> Vercel, Netlify e GitHub Pages estão configurados para servir a pasta `site/`
+> de forma **estática** (`outputDirectory`/`publish` = `site`, sem `npm run build`).
+> Basta abrir o arquivo no navegador ou importar o repositório no host.
+> O código React/Vite em `src/` permanece como implementação alternativa, mas
+> **não** é o que vai ao ar.
+
 Aplicação web que transforma a planilha Excel de **Pré-Registro** em um painel
 operacional com **Dashboard por analista**, **Calendário** (recorrente e de
 vencidos) e **Timeline** por atividade.
